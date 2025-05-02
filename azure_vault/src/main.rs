@@ -8,7 +8,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Azure Key Vault and authentication details
     let client_id = "40494ed1-b862-40ff-bf83-d5e709128a61";
     let tenant_id = "b6b76e47-d4c0-46ca-8f87-8a7874af4d15";
-    let client_secret = "";
+    let client_secret = "   ";
     let vault_url = "https://dclmcertvault.vault.azure.net/";
 
     // Initialize credentials using ClientSecretCredential
