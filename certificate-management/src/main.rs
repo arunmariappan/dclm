@@ -13,6 +13,8 @@ use std::sync::Arc;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    // Load .env file
+    dotenv::dotenv().ok(); // .ok() ignores errors if .env file is missing
     env_logger::init();
     info!("Starting certificate management microservices...");
 
