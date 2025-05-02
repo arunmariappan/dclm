@@ -1,6 +1,6 @@
 use base64::{engine::general_purpose, Engine as _};
 use openssl::pkcs12::Pkcs12;
-use openssl::pkey::{PKey, Private};
+use openssl::pkey::PKey;
 use openssl::x509::X509;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
@@ -76,7 +76,10 @@ pub fn format_pfx(private_key: &str, cert: &str) -> Result<(String, String), Cry
         .map(char::from)
         .collect();
     let pkcs12 = Pkcs12::builder()
-        .build(&password, "certificate", &pkey, &x509)?;
+        .pkey(&pkey)
+        .cert(&x509)
+        .name("certificate")
+        .build2(&password)?;
     let pfx_der = pkcs12.to_der()?;
     Ok((general_purpose::STANDARD.encode(pfx_der), password))
 }

@@ -1,6 +1,6 @@
 use actix_web::{web, HttpResponse, Responder};
 use azure_identity::ClientSecretCredential;
-use azure_security_keyvault::KeyVaultClient;
+use azure_security_keyvault::KeyvaultClient;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thiserror::Error;
@@ -69,12 +69,13 @@ async fn format_certificate(
     }
 
     // Initialize Key Vault client
-    let client = KeyVaultClient::new(vault_url, credential.clone())
+    let client = KeyvaultClient::new(vault_url, credential.clone())
         .map_err(|e| CertificateFormattingError::KeyVaultError(e.to_string()))?;
 
     // Retrieve private key from Key Vault
     let secret = client
-        .get_secret(&req.hash)
+        .secret_client()
+        .get(&req.hash)
         .await
         .map_err(|e| CertificateFormattingError::KeyVaultError(e.to_string()))?;
     let private_key = secret.value;

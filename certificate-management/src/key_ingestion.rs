@@ -1,6 +1,6 @@
 use actix_web::{web, HttpResponse, Responder};
 use azure_identity::ClientSecretCredential;
-use azure_security_keyvault::KeyVaultClient;
+use azure_security_keyvault::KeyvaultClient;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -74,12 +74,13 @@ async fn ingest_key(
     let hash = hash_private_key(&req.private_key)?;
 
     // Initialize Key Vault client
-    let client = KeyVaultClient::new(vault_url, credential.clone())
+    let client = KeyvaultClient::new(vault_url, credential.clone())
         .map_err(|e| KeyIngestionError::KeyVaultError(e.to_string()))?;
 
     // Store private key in Key Vault
     client
-        .set_secret(&hash, &req.private_key)
+        .secret_client()
+        .set(&hash, &req.private_key)
         .await
         .map_err(|e| KeyIngestionError::KeyVaultError(e.to_string()))?;
 

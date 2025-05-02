@@ -1,8 +1,13 @@
+mod db;
+mod crypto;
+mod key_ingestion;
+mod certificate_formatting;
+
 use actix_web::{web, App, HttpServer};
-use azure_identity::ClientSecretCredential;
-use certificate_management::db::init_db_pool;
-use certificate_management::key_ingestion::ingest_key_handler;
-use certificate_management::certificate_formatting::format_certificate_handler;
+use azure_identity::{ClientSecretCredential, TokenCredentialOptions};
+use db::init_db_pool;
+use key_ingestion::ingest_key_handler;
+use certificate_formatting::format_certificate_handler;
 use log::info;
 use std::sync::Arc;
 
@@ -16,10 +21,11 @@ async fn main() -> std::io::Result<()> {
 
     // Initialize Azure credentials
     let credential = Arc::new(ClientSecretCredential::new(
-        std::env::var("AZURE_TENANT_ID").expect("AZURE_TENANT_ID not set"),
+        azure_core::new_http_client(),
         std::env::var("AZURE_CLIENT_ID").expect("AZURE_CLIENT_ID not set"),
         std::env::var("AZURE_CLIENT_SECRET").expect("AZURE_CLIENT_SECRET not set"),
-        None,
+        std::env::var("AZURE_TENANT_ID").expect("AZURE_TENANT_ID not set"),
+        TokenCredentialOptions::default(),
     ));
 
     let vault_url = std::env::var("KEY_VAULT_URL").expect("KEY_VAULT_URL not set");
