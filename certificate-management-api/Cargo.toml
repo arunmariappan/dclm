@@ -1,0 +1,22 @@
+[package]
+name = "certificate-management"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+actix-web = "4.9"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+log = "0.4"
+env_logger = "0.11"
+tokio = { version = "1.40", features = ["full"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "tls-rustls"] }
+thiserror = "1.0"
+base64 = "0.22"
+openssl = "0.10"
+rand = "0.8"
+sha2 = "0.10"
+hex = "0.4"
+uuid = { version = "1.10", features = ["v4"] }
+reqwest = { version = "0.11", features = ["json", "native-tls"] }
+config = "0.14" # Added for appsettings.json

@@ -1,91 +1,135 @@
-use actix_web::{web, HttpResponse, Responder};
+use actix_web::{web, HttpResponse, ResponseError};
 use azure_identity::ClientSecretCredential;
-use azure_security_keyvault::KeyvaultClient;
+use azure_security_keyvault_secrets::{SecretClient, models::{SetSecretParameters, SecretAttributes}};
+use azure_core::credentials::Secret;
+use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
-use std::sync::Arc;
+use sqlx::Postgres;
 use thiserror::Error;
+use uuid::Uuid;
+use typespec_client_core::http::request::RequestContent;
 
-use crate::{
-    crypto::{hash_private_key, validate_private_key, validate_public_key, CryptoError},
-    db::{store_key_data, DbError},
-};
-
-#[derive(Error, Debug)]
-pub enum KeyIngestionError {
-    #[error("Validation error: {0}")]
-    ValidationError(String),
-    #[error("Key Vault error: {0}")]
-    KeyVaultError(String),
-    #[error("Database error: {0}")]
-    DbError(#[from] DbError),
-    #[error("Crypto error: {0}")]
-    CryptoError(#[from] CryptoError),
-}
+use crate::crypto::{hash_private_key, validate_private_key, validate_public_key, CryptoError};
+use crate::db::{store_key, DbError};
+use crate::Config;
 
 #[derive(Deserialize)]
-pub struct KeyIngestionRequest {
+pub struct KeyRequest {
     private_key: String,
     public_key: String,
 }
 
 #[derive(Serialize)]
-pub struct KeyIngestionResponse {
+pub struct KeyResponse {
     status: String,
     hash: Option<String>,
     error: Option<String>,
 }
 
-pub async fn ingest_key_handler(
-    req: web::Json<KeyIngestionRequest>,
-    pool: web::Data<PgPool>,
-    credential: web::Data<Arc<ClientSecretCredential>>,
-    vault_url: web::Data<String>,
-) -> impl Responder {
-    match ingest_key(&req, &pool, &credential, &vault_url).await {
-        Ok(hash) => HttpResponse::Ok().json(KeyIngestionResponse {
-            status: "success".to_string(),
-            hash: Some(hash),
-            error: None,
-        }),
-        Err(e) => HttpResponse::BadRequest().json(KeyIngestionResponse {
+#[derive(Debug, Error)]
+pub enum AppError {
+    #[error("Database error: {0}")]
+    DbError(#[from] DbError),
+    #[error("Crypto error: {0}")]
+    CryptoError(#[from] CryptoError),
+    #[error("Key Vault error: {0}")]
+    KeyVaultError(String)
+}
+
+impl ResponseError for AppError {
+    fn error_response(&self) -> HttpResponse {
+        error!("Error occurred: {:?}", self);
+        HttpResponse::InternalServerError().json(KeyResponse {
             status: "error".to_string(),
             hash: None,
-            error: Some(e.to_string()),
-        }),
+            error: Some(self.to_string()),
+        })
     }
 }
 
-async fn ingest_key(
-    req: &KeyIngestionRequest,
-    pool: &PgPool,
-    credential: &Arc<ClientSecretCredential>,
-    vault_url: &str,
-) -> Result<String, KeyIngestionError> {
-    // Validate inputs
-    validate_private_key(&req.private_key).map_err(|e| {
-        KeyIngestionError::ValidationError(format!("Invalid private key: {}", e))
-    })?;
-    validate_public_key(&req.public_key).map_err(|e| {
-        KeyIngestionError::ValidationError(format!("Invalid public key: {}", e))
-    })?;
+pub async fn ingest_key_handler(
+    req: web::Json<KeyRequest>,
+    db_pool: web::Data<sqlx::Pool<Postgres>>,
+    config: web::Data<Config>,
+) -> Result<HttpResponse, AppError> {
+    debug!(
+        "Received /ingest-key request with private_key (length: {}), public_key (length: {})",
+        req.private_key.len(),
+        req.public_key.len()
+    );
 
-    // Calculate hash
-    let hash = hash_private_key(&req.private_key)?;
+    // Step 1: Validate keys
+    validate_private_key(&req.private_key)?;
+    validate_public_key(&req.public_key)?;
 
-    // Initialize Key Vault client
-    let client = KeyvaultClient::new(vault_url, credential.clone())
-        .map_err(|e| KeyIngestionError::KeyVaultError(e.to_string()))?;
+    // Step 2: Validate secret size (Key Vault limit: 25 KB)
+    if req.private_key.len() > 25_000 {
+        error!("Private key too large: {} bytes", req.private_key.len());
+        return Ok(HttpResponse::BadRequest().json(KeyResponse {
+            status: "error".to_string(),
+            hash: None,
+            error: Some("Private key exceeds Key Vault size limit (25 KB)".to_string()),
+        }));
+    }
 
-    // Store private key in Key Vault
-    client
-        .secret_client()
-        .set(&hash, &req.private_key)
+    // Step 3: Sanitize private key
+    let private_key = req.private_key.trim();
+    if private_key.contains('\0') || !private_key.is_ascii() {
+        error!("Private key contains invalid characters: first 50 chars: {:?}", 
+               private_key.chars().take(50).collect::<String>());
+        return Ok(HttpResponse::BadRequest().json(KeyResponse {
+            status: "error".to_string(),
+            hash: None,
+            error: Some("Private key contains invalid characters".to_string()),
+        }));
+    }
+
+    // Step 4: Hash the private key
+    let hash = hash_private_key(&private_key)?;
+    debug!("Generated hash for private key: {}", hash);
+
+    // Step 5: Store secret in Key Vault using Azure SDK with service principal
+    let creds = ClientSecretCredential::new(
+        config.azure_tenant_id.as_str(),
+        config.azure_client_id.clone(),
+        Secret::from(config.azure_client_secret.clone()),
+        None
+    ).map_err(|e| AppError::KeyVaultError(format!("Error creating credential: {}", e)))?;
+    let secret_client = SecretClient::new(&config.key_vault_url, creds, None)
+        .map_err(|e| AppError::KeyVaultError(format!("Error creating Key Vault client: {}", e)))?;
+    let secret_name = format!("key-{}", Uuid::new_v4());
+    debug!("Storing secret '{}' in Key Vault, private_key length: {}, first 50 chars: {:?}", 
+           secret_name, 
+           private_key.len(),
+           private_key.chars().take(50).collect::<String>()
+    );
+
+    // Set actual private key with tags
+    let params = SetSecretParameters {
+        value: Some(private_key.to_string()),
+        tags: Some(std::collections::HashMap::from([("hash".to_string(), hash.clone())])),
+        content_type: None,
+        secret_attributes: Some(SecretAttributes::default()),
+    };
+    match secret_client
+        .set_secret(&secret_name, RequestContent::from(serde_json::to_vec(&params).map_err(|e| AppError::KeyVaultError(format!("Serialization error: {}", e)))?), None)
         .await
-        .map_err(|e| KeyIngestionError::KeyVaultError(e.to_string()))?;
+    {
+        Ok(_) => info!("Secret '{}' stored in Key Vault with hash tag", secret_name),
+        Err(e) => {
+            error!("Key Vault set secret failed: {:?}", e);
+            return Err(AppError::KeyVaultError(format!("Key Vault set secret failed: {}", e)));
+        }
+    }
 
-    // Store hash and public key in database
-    store_key_data(pool, &hash, &req.public_key).await?;
+    // Step 6: Store hash and public key in PostgreSQL
+    store_key(&db_pool, &hash, &req.public_key, &secret_name).await?;
+    info!("Stored hash, public key, and secret name in database");
 
-    Ok(hash)
+    // Step 7: Return success response
+    Ok(HttpResponse::Ok().json(KeyResponse {
+        status: "success".to_string(),
+        hash: Some(hash),
+        error: None,
+    }))
 }

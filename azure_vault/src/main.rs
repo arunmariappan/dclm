@@ -8,7 +8,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Azure Key Vault and authentication details
     let client_id = "40494ed1-b862-40ff-bf83-d5e709128a61";
     let tenant_id = "b6b76e47-d4c0-46ca-8f87-8a7874af4d15";
-    let client_secret = "   ";
+    let client_secret = "m5U8Q~BIBsF49yzGZoOmx2CVC2wQyPd3FILzyae8";
     let vault_url = "https://dclmcertvault.vault.azure.net/";
 
     // Initialize credentials using ClientSecretCredential
@@ -23,9 +23,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let client = SecretClient::new(vault_url, Arc::new(credential), None)?;
 
     // Create a new secret
-    let secret_name = "secret-name";
+    let secret_name = "secret-name-test";
     let secret_set_parameters = SetSecretParameters {
-        value: Some("secret-value".to_string()), // Wrap in Some
+        value: Some("secret-value-test".to_string()), // Wrap in Some
         ..Default::default()
     };
 
