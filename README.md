@@ -63,3 +63,42 @@ curl -X POST \
   -d "scope=https://azure-key-vault-maple.vault.azure.net/" \
   "https://login.microsoftonline.com/4419d016-6ca7-4bea-867b-c8f57e97f397/oauth2/v2.0/token"
 
+-----------------------------------------------------
+Copilot
+-----------------------------------------------------
+
+openssl genpkey -algorithm RSA -out private_key.pem -pkeyopt rsa_keygen_bits:4096
+openssl rsa -pubout -in private_key.pem -out public_key.pem
+
+base64 private_key.pem > private_key_base64.txt
+base64 public_key.pem > public_key_base64.txt
+------------------------------------------------------------------------------------------
+------ Generate private key
+openssl genpkey -algorithm RSA -out private_key.pem -pkeyopt rsa_keygen_bits:4096
+openssl rsa -pubout -in private_key.pem -out public_key.pem
+
+-- Certificate
+openssl req -new -key private_key.pem -out certificate.csr -subj "/C=IN/ST=Karnataka/L=Bengaluru/O=Maple Solutions/CN=maple-solutions.com"
+-- Self signed certificate
+openssl x509 -req -days 365 -in certificate.csr -signkey private_key.pem -out certificate.pem
+-- convert certificate to pfx
+openssl pkcs12 -export -out certificate.pfx -inkey private_key.pem -in certificate.pem -name "maple-solutions" -password pass:123456
+
+-- base64
+base64 -w 0 private_key.pem > private_key_base64.txt
+base64 -w 0 public_key.pem > public_key_base64.txt
+base64 -w 0 certificate.pem > certificate_base64.txt
+base64 certificate.pfx > certificate_pfx_base64.txt
+
+------------------------------------------------
+Grok
+------------------------------------------------
+Generate Test Keys:
+
+openssl genrsa -out private.key 2048
+openssl req -new -x509 -key private.key -out certificate.crt -days 365
+openssl rsa -in private.key -pubout -out public.key
+
+base64 private.key > private.b64
+base64 certificate.crt > cert.b64
+base64 public.key > public.b64
