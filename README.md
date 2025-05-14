@@ -99,6 +99,6 @@ openssl genrsa -out private.key 2048
 openssl req -new -x509 -key private.key -out certificate.crt -days 365
 openssl rsa -in private.key -pubout -out public.key
 
-base64 private.key > private.b64
-base64 certificate.crt > cert.b64
-base64 public.key > public.b64
+base64 -w 0 private.key > private.b64
+base64 -w 0 certificate.crt > cert.b64
+base64 -w 0 public.key > public.b64
